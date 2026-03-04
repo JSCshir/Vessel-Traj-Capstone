@@ -133,6 +133,15 @@ class lstm_seq2seq(nn.Module):
         optimizer = optim.Adam(self.parameters(), lr=learning_rate)
         criterion = nn.MSELoss()
 
+        device = next(self.parameters()).device  # cuda:0 if model.to(device) was called
+
+        input_tensor = input_tensor.to(device)
+        target_tensor = target_tensor.to(device)
+
+        if val_input_tensor is not None:
+            val_input_tensor = val_input_tensor.to(device)
+            val_target_tensor = val_target_tensor.to(device)
+
         # calculate number of batch iterations
         n_batches = int(input_tensor.shape[1] / batch_size)
 
@@ -165,10 +174,7 @@ class lstm_seq2seq(nn.Module):
 
                     outputs = torch.zeros(target_len, batch_size, 2, device=input_batch.device)
 
-                    encoder_hidden = self.encoder.init_hidden(batch_size)
-                    # move hidden to device if needed
-                    encoder_hidden = (encoder_hidden[0].to(input_batch.device),
-                                        encoder_hidden[1].to(input_batch.device))
+                    encoder_hidden = self.encoder.init_hidden(batch_size, device)
 
                     optimizer.zero_grad()
 
