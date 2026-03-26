@@ -1,8 +1,3 @@
-# lstm_dos_rewritten.py
-# Improved LSTM encoder/decoder seq2seq for trajectory forecasting.
-# Keeps a decoder for multi-step prediction, but fixes the main issues of
-# decoding from only raw lat/lon with no motion context.
-
 import copy
 import math
 import random
@@ -52,10 +47,7 @@ class lstm_encoder(nn.Module):
 
 class lstm_decoder(nn.Module):
     """
-    Decoder that consumes a richer feature vector than just lat/lon.
-
-    The decoder still predicts only the target variables (default 2 -> lat/lon),
-    but its input can include motion/context features such as speed/course/dt.
+    Decoder
     """
 
     def __init__(
@@ -98,12 +90,6 @@ class lstm_decoder(nn.Module):
 class lstm_seq2seq(nn.Module):
     """
     Seq2seq LSTM for trajectory forecasting.
-
-    Improvements over the original version:
-    - decoder can consume a richer feature vector than just lat/lon
-    - optional delta prediction instead of absolute position prediction
-    - configurable target indices instead of assuming lat/lon are columns 0 and 1
-    - better batch shuffling and gradient clipping support
     """
 
     def __init__(
@@ -146,8 +132,6 @@ class lstm_seq2seq(nn.Module):
             dropout=dropout,
         )
 
-        # Maps decoder output back into decoder feature space for recursive rollout.
-        # This lets us keep decoder inputs rich while still only predicting output_size vars.
         self.target_to_decoder = nn.Linear(output_size, self.decoder_input_size)
 
     def _extract_targets(self, tensor: torch.Tensor) -> torch.Tensor:
