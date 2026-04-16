@@ -89,7 +89,8 @@ class lstm_decoder(nn.Module):
 
 class lstm_seq2seq(nn.Module):
     """
-    Seq2seq LSTM for trajectory forecasting.
+    Seq2seq LSTM that predicts the target tensor directly.
+    For your project, target_tensor should already be [dlat, dlon].
     """
 
     def __init__(
@@ -99,19 +100,12 @@ class lstm_seq2seq(nn.Module):
         output_size: int = 2,
         num_layers: int = 3,
         dropout: float = 0.3,
-        target_indices: Sequence[int] = (0, 1),
         decoder_feature_indices: Optional[Sequence[int]] = None,
-        predict_deltas: bool = False,
     ):
         super().__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.output_size = output_size
-        self.target_indices = tuple(target_indices)
-        self.predict_deltas = predict_deltas
-
-        if len(self.target_indices) != output_size:
-            raise ValueError("len(target_indices) must equal output_size")
 
         if decoder_feature_indices is None:
             decoder_feature_indices = tuple(range(input_size))
@@ -134,67 +128,23 @@ class lstm_seq2seq(nn.Module):
 
         self.target_to_decoder = nn.Linear(output_size, self.decoder_input_size)
 
-    def _extract_targets(self, tensor: torch.Tensor) -> torch.Tensor:
-        return tensor[..., list(self.target_indices)]
-
     def _make_initial_decoder_input(self, input_batch: torch.Tensor) -> torch.Tensor:
         """Use the last observed feature vector subset as the first decoder input."""
         return input_batch[-1, :, list(self.decoder_feature_indices)]
 
     def _make_next_decoder_input(self, pred_out: torch.Tensor, prev_decoder_input: torch.Tensor) -> torch.Tensor:
         """
-        Convert predicted targets into the decoder feature space for the next recursive step.
-        Keeps recursion possible even when decoder input uses more than the predicted vars.
+        Project the predicted 2-d target back into decoder-input space.
         """
         projected = self.target_to_decoder(pred_out)
-        # Residual blend helps stabilize rollouts.
         return 0.5 * projected + 0.5 * prev_decoder_input
-
-    def _targets_to_training_space(self, input_batch: torch.Tensor, target_batch: torch.Tensor) -> torch.Tensor:
-        """
-        If predict_deltas=True, convert absolute targets into deltas relative to the
-        previous observed/true point. Otherwise keep as absolute targets.
-        """
-        if not self.predict_deltas:
-            return target_batch
-
-        prev = self._extract_targets(input_batch[-1])
-        deltas = []
-        for t in range(target_batch.shape[0]):
-            current = target_batch[t]
-            deltas.append(current - prev)
-            prev = current
-        return torch.stack(deltas, dim=0)
-
-    def _outputs_to_absolute(self, input_batch: torch.Tensor, outputs: torch.Tensor) -> torch.Tensor:
-        """
-        Convert model outputs to absolute coordinates if model predicts deltas.
-        outputs: (target_len, batch, output_size)
-        """
-        if not self.predict_deltas:
-            return outputs
-
-        prev = self._extract_targets(input_batch[-1])
-        abs_outputs = []
-        for t in range(outputs.shape[0]):
-            prev = prev + outputs[t]
-            abs_outputs.append(prev)
-        return torch.stack(abs_outputs, dim=0)
 
     def _decode_rollout_recursive(
         self,
         decoder_input: torch.Tensor,
         decoder_hidden: Tuple[torch.Tensor, torch.Tensor],
         target_len: int,
-        input_batch: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        """
-        Recursive rollout decoding.
-        decoder_input: (batch, decoder_input_size)
-        returns outputs in model training space:
-            - absolute targets if predict_deltas=False
-            - delta targets if predict_deltas=True
-        """
         batch_size = decoder_input.shape[0]
         device = decoder_input.device
         outputs = torch.zeros(target_len, batch_size, self.output_size, device=device)
@@ -211,11 +161,11 @@ class lstm_seq2seq(nn.Module):
     def _run_decoder(
         self,
         input_batch: torch.Tensor,
-        target_batch_abs: torch.Tensor,
+        target_batch: torch.Tensor,
         target_len: int,
         training_prediction: str,
         teacher_forcing_ratio: float,
-    ) -> torch.Tensor:
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         bs = input_batch.shape[1]
         device = input_batch.device
 
@@ -223,10 +173,8 @@ class lstm_seq2seq(nn.Module):
         decoder_input = self._make_initial_decoder_input(input_batch)
         decoder_hidden = encoder_hidden
 
-        target_batch_train = self._targets_to_training_space(input_batch, target_batch_abs)
-
         if training_prediction == "recursive":
-            outputs = self._decode_rollout_recursive(decoder_input, decoder_hidden, target_len, input_batch)
+            outputs = self._decode_rollout_recursive(decoder_input, decoder_hidden, target_len)
 
         elif training_prediction == "teacher_forcing":
             outputs = torch.zeros(target_len, bs, self.output_size, device=device)
@@ -237,7 +185,7 @@ class lstm_seq2seq(nn.Module):
                 dec_out, dec_hid = self.decoder(dec_in, dec_hid)
                 outputs[t] = dec_out
                 if use_tf:
-                    dec_in = self._make_next_decoder_input(target_batch_train[t], dec_in)
+                    dec_in = self._make_next_decoder_input(target_batch[t], dec_in)
                 else:
                     dec_in = self._make_next_decoder_input(dec_out, dec_in)
 
@@ -249,14 +197,14 @@ class lstm_seq2seq(nn.Module):
                 dec_out, dec_hid = self.decoder(dec_in, dec_hid)
                 outputs[t] = dec_out
                 if random.random() < teacher_forcing_ratio:
-                    dec_in = self._make_next_decoder_input(target_batch_train[t], dec_in)
+                    dec_in = self._make_next_decoder_input(target_batch[t], dec_in)
                 else:
                     dec_in = self._make_next_decoder_input(dec_out, dec_in)
 
         else:
             raise ValueError("training_prediction must be 'recursive', 'teacher_forcing', or 'mixed_teacher_forcing'")
 
-        return outputs, target_batch_train
+        return outputs, target_batch
 
     def train_model(
         self,
@@ -278,10 +226,8 @@ class lstm_seq2seq(nn.Module):
         shuffle_batches: bool = True,
     ) -> Dict[str, Any]:
         """
-        Trains with optional early stopping.
-
         input_tensor:  (seq_len, N, input_size)
-        target_tensor: (target_len, N, >= max(target_indices)+1)
+        target_tensor: (target_len, N, output_size)
         """
         device = next(self.parameters()).device
         input_tensor = input_tensor.to(device)
@@ -322,18 +268,18 @@ class lstm_seq2seq(nn.Module):
                         continue
 
                     input_batch = input_tensor[:, batch_idx, :]
-                    target_batch_abs = self._extract_targets(target_tensor[:, batch_idx, :])
+                    target_batch = target_tensor[:, batch_idx, :]
 
                     optimizer.zero_grad()
-                    outputs, target_batch_train = self._run_decoder(
+                    outputs, target_batch_used = self._run_decoder(
                         input_batch=input_batch,
-                        target_batch_abs=target_batch_abs,
+                        target_batch=target_batch,
                         target_len=target_len,
                         training_prediction=training_prediction,
                         teacher_forcing_ratio=teacher_forcing_ratio,
                     )
 
-                    loss = criterion(outputs, target_batch_train)
+                    loss = criterion(outputs, target_batch_used)
                     loss.backward()
                     if grad_clip is not None:
                         nn.utils.clip_grad_norm_(self.parameters(), grad_clip)
@@ -357,16 +303,16 @@ class lstm_seq2seq(nn.Module):
                                 continue
 
                             v_in = val_input_tensor[:, start:end, :]
-                            v_tg_abs = self._extract_targets(val_target_tensor[:, start:end, :])
+                            v_tg = val_target_tensor[:, start:end, :]
 
-                            v_out, v_tg_train = self._run_decoder(
+                            v_out, v_tg_used = self._run_decoder(
                                 input_batch=v_in,
-                                target_batch_abs=v_tg_abs,
+                                target_batch=v_tg,
                                 target_len=target_len,
                                 training_prediction="recursive",
                                 teacher_forcing_ratio=0.0,
                             )
-                            v_loss = criterion(v_out, v_tg_train)
+                            v_loss = criterion(v_out, v_tg_used)
                             val_epoch_loss += v_loss.item()
 
                     val_epoch_loss /= max(n_val_batches, 1)
@@ -400,14 +346,10 @@ class lstm_seq2seq(nn.Module):
             "epochs_ran": len(train_losses),
         }
 
-    def predict(self, input_tensor: torch.Tensor, target_len: int, return_absolute: bool = True) -> np.ndarray:
+    def predict(self, input_tensor: torch.Tensor, target_len: int) -> np.ndarray:
         """
-        input_tensor: (seq_len, features) or (seq_len, 1, features)
-        returns: (target_len, output_size) numpy array
-
-        If predict_deltas=True:
-          - return_absolute=True  -> returns absolute future points
-          - return_absolute=False -> returns predicted deltas
+        Returns direct model outputs in target space.
+        For your project, that means predicted [dlat, dlon].
         """
         self.eval()
         device = next(self.parameters()).device
@@ -421,7 +363,5 @@ class lstm_seq2seq(nn.Module):
         with torch.no_grad():
             _, encoder_hidden = self.encoder(x)
             decoder_input = self._make_initial_decoder_input(x)
-            outputs = self._decode_rollout_recursive(decoder_input, encoder_hidden, target_len, x)
-            if self.predict_deltas and return_absolute:
-                outputs = self._outputs_to_absolute(x, outputs)
+            outputs = self._decode_rollout_recursive(decoder_input, encoder_hidden, target_len)
             return outputs.squeeze(1).detach().cpu().numpy()
