@@ -1,5 +1,11 @@
 Below is a clean “How To” section you can use as a starting point. I wrote it as if it will go directly into a `README.md` or `HOW_TO_RUN.md` file.
 
+!!!!!!!!!!!
+NOTE::
+You are going to HAVE to add the experiments and models folder to the main tcn_model folder as GitHub will not allow us to upload empty folders
+NOTE::
+!!!!!!!!!!!
+
 ---
 
 # TCN Vessel Trajectory Prediction Pipeline: How To Use
