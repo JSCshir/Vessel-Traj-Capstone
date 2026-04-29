@@ -1,0 +1,802 @@
+Below is a clean “How To” section you can use as a starting point. I wrote it as if it will go directly into a `README.md` or `HOW_TO_RUN.md` file.
+
+---
+
+# TCN Vessel Trajectory Prediction Pipeline: How To Use
+
+This project contains a Temporal Convolutional Network pipeline for vessel trajectory prediction using AIS data. The pipeline is organized so that raw data, model code, experiment runs, and final results are kept separate. This makes the project easier to understand, rerun, and modify.
+
+## Project Folder Structure
+
+```text
+capstone/
+├── data/
+│   ├── raw/
+│   ├── processed/
+│   └── external/
+│
+├── src/
+│   ├── __init__.py
+│   ├── tcn_refactor.py
+│   └── experiment_runner.py
+│
+├── experiments/
+│
+├── notebooks/
+│
+├── requirements.txt
+└── README.md
+```
+
+## Folder Descriptions
+
+### `data/`
+
+The `data/` folder contains all data used or created by the project.
+
+#### `data/raw/`
+
+This folder contains the original cleaned input data used by the model.
+
+Typical files include:
+
+```text
+mid_datav4.csv
+train_data.csv
+test_data.csv
+```
+
+These files should be treated as the main input files for the project. The raw data should not be edited unless the entire experiment is being intentionally rebuilt from a new dataset.
+
+The expected data includes AIS information such as:
+
+```text
+LAT
+LON
+SOG
+sin(COG)
+cos(COG)
+sin(Heading)
+cos(Heading)
+dt
+MMSI
+voyage_id
+row_id
+```
+
+The model uses the numerical movement features as inputs. Columns such as `MMSI`, `voyage_id`, and `row_id` are used as metadata to keep track of vessels, voyages, and prediction points.
+
+#### `data/processed/`
+
+This folder is used for generated or intermediate data products.
+
+Examples may include:
+
+```text
+sequence-ready data
+scaled data
+cleaned feature files
+temporary model input files
+```
+
+This folder is useful when preprocessing steps create new files that should be saved but are not final experiment results.
+
+#### `data/external/`
+
+This folder is for outside reference data or supporting datasets that are not directly created by the TCN pipeline.
+
+Examples may include:
+
+```text
+environmental data
+bathymetry data
+traffic separation scheme data
+outside AIS reference files
+```
+
+This folder may be empty if the current version of the project only uses AIS data.
+
+---
+
+### `src/`
+
+The `src/` folder contains the Python source code for the project.
+
+#### `src/__init__.py`
+
+This file allows the `src/` folder to be treated as a Python package.
+
+It may be empty, but it is still important because it helps Python correctly import files from the `src/` folder when running the project from the command line.
+
+#### `src/tcn_refactor.py`
+
+This is the main model and pipeline file.
+
+It contains the core logic for the TCN workflow, including:
+
+```text
+loading data
+checking required columns
+preprocessing features
+building voyage-safe sequences
+defining the TCN model
+training the model
+evaluating the model
+generating predictions
+calculating error metrics
+comparing against dead reckoning
+saving outputs
+```
+
+This file should be treated as the main engine of the project.
+
+Most model logic belongs here. The experiment runner should call this file rather than duplicate its code.
+
+#### `src/experiment_runner.py`
+
+This file runs experiments.
+
+It is responsible for selecting model settings and launching one or more model runs.
+
+It may include hyperparameter options such as:
+
+```text
+sequence length
+batch size
+learning rate
+weight decay
+dropout
+kernel size
+TCN channel sizes
+dilation pattern
+number of epochs
+early stopping rules
+```
+
+This file is where a user should go when they want to run a new test or change the model configuration.
+
+The `experiment_runner.py` file should not contain the full model logic. Its purpose is to organize experiments and call the reusable functions from `tcn_refactor.py`.
+
+---
+
+### `experiments/`
+
+The `experiments/` folder stores the results from each model run.
+
+Each time an experiment is run, a new subfolder should be created.
+
+Example:
+
+```text
+experiments/
+└── 20260429_153000_seq16_kernel5/
+    ├── config.json
+    ├── run_log.txt
+    ├── metrics_summary.json
+    ├── train_loss_history.csv
+    ├── predictions.csv
+    └── figures/
+```
+
+Each experiment folder should contain enough information to understand and reproduce the run.
+
+Typical files include:
+
+#### `config.json`
+
+Stores the exact settings used for the run.
+
+This may include:
+
+```text
+sequence length
+learning rate
+batch size
+dropout
+kernel size
+channel structure
+dilation structure
+number of epochs
+input features
+target variables
+```
+
+#### `run_log.txt`
+
+Stores general notes from the run.
+
+This may include:
+
+```text
+start time
+end time
+training progress
+warnings
+errors
+final status
+```
+
+#### `metrics_summary.json`
+
+Stores the final evaluation metrics.
+
+Common metrics include:
+
+```text
+RMSE
+MAE
+median error
+95th percentile error
+Q1
+Q3
+IQR
+dead reckoning comparison metrics
+```
+
+#### `train_loss_history.csv`
+
+Stores training loss by epoch.
+
+This is useful for checking whether the model was still learning, overfitting, or flattening out.
+
+#### `predictions.csv`
+
+Stores the model predictions and comparison values.
+
+This file may include:
+
+```text
+true latitude
+true longitude
+predicted latitude
+predicted longitude
+dead reckoning latitude
+dead reckoning longitude
+TCN error
+dead reckoning error
+MMSI
+voyage_id
+row_id
+```
+
+This is one of the most important files for analyzing model performance after the run is complete.
+
+---
+
+### `notebooks/`
+
+The `notebooks/` folder contains Jupyter notebooks used for development, testing, visualization, or exploration.
+
+These notebooks are useful for:
+
+```text
+testing code ideas
+visualizing AIS tracks
+checking model outputs
+plotting predictions
+debugging preprocessing steps
+```
+
+However, notebooks should not be treated as the main pipeline. The final repeatable version of the project should be run through the `.py` files in the `src/` folder.
+
+---
+
+### `requirements.txt`
+
+This file lists the Python packages needed to run the project.
+
+Before running the pipeline on a new machine, install the requirements using:
+
+```bash
+pip install -r requirements.txt
+```
+
+Depending on the machine, PyTorch may need to be installed separately to match the correct CUDA version.
+
+---
+
+### `README.md`
+
+The `README.md` file gives a high-level explanation of the project.
+
+It should explain:
+
+```text
+what the project does
+what data it uses
+how the folder structure works
+how to run the model
+how to interpret the results
+```
+
+This “How To” file can either be included in the `README.md` or saved separately as:
+
+```text
+HOW_TO_RUN.md
+```
+
+---
+
+# How To Run the TCN Pipeline
+
+## Step 1: Open the Project Folder
+
+Open a terminal and navigate to the main project folder.
+
+Example:
+
+```bash
+cd capstone
+```
+
+You should be in the folder that contains:
+
+```text
+data/
+src/
+experiments/
+notebooks/
+requirements.txt
+README.md
+```
+
+---
+
+## Step 2: Activate the Python Environment
+
+Activate the Python environment used for the project.
+
+Example using Conda:
+
+```bash
+conda activate tcn_gpu
+```
+
+Or, if using a virtual environment:
+
+```bash
+source venv/bin/activate
+```
+
+The exact environment name may be different depending on the machine.
+
+---
+
+## Step 3: Install Required Packages
+
+Install the required Python packages:
+
+```bash
+pip install -r requirements.txt
+```
+
+If PyTorch is already installed with GPU support, do not blindly reinstall it unless needed. PyTorch installation depends on the machine’s CUDA setup.
+
+To check whether PyTorch detects the GPU, run:
+
+```bash
+python3 -c "import torch; print(torch.cuda.is_available())"
+```
+
+If the output is:
+
+```text
+True
+```
+
+then PyTorch can access the GPU.
+
+If the output is:
+
+```text
+False
+```
+
+then the code may still run on CPU, but training will be slower.
+
+---
+
+## Step 4: Confirm the Data Files Exist
+
+Before running the model, confirm that the required input files are in `data/raw/`.
+
+Expected files:
+
+```text
+data/raw/train_data.csv
+data/raw/test_data.csv
+```
+
+Depending on the version of the pipeline, the project may also use:
+
+```text
+data/raw/mid_datav4.csv
+```
+
+The train and test files should already be split so that the same `MMSI` does not appear in both datasets. This prevents data leakage between training and testing.
+
+---
+
+## Step 5: Review the Experiment Settings
+
+Open:
+
+```text
+src/experiment_runner.py
+```
+
+This file controls which experiments will be run.
+
+Look for the section that defines the experiment settings. It may look similar to this:
+
+```python
+seq_lens = [16, 20, 24]
+batch_sizes = [128, 256]
+learning_rates = [1e-4, 3e-4]
+dropouts = [0.2, 0.3]
+kernel_sizes = [3, 5]
+channel_options = [
+    [64, 128, 256]
+]
+dilation_options = [
+    [1, 2, 4, 8]
+]
+```
+
+To run only one test, reduce each list to one value.
+
+Example:
+
+```python
+seq_lens = [16]
+batch_sizes = [256]
+learning_rates = [1e-4]
+dropouts = [0.3]
+kernel_sizes = [5]
+channel_options = [
+    [64, 128, 256]
+]
+dilation_options = [
+    [1, 2, 4, 8]
+]
+```
+
+This is the safest way to run a single controlled test.
+
+---
+
+## Step 6: Run the Experiment Runner
+
+From the main `capstone/` folder, run:
+
+```bash
+python3 -m src.experiment_runner
+```
+
+This is the preferred command.
+
+Do not run it like this unless the imports have been specifically written to support direct execution:
+
+```bash
+python3 src/experiment_runner.py
+```
+
+The package-style command is better because it allows Python to correctly recognize the `src/` folder and import functions from `tcn_refactor.py`.
+
+---
+
+# What Happens When the Experiment Runs
+
+When the experiment starts, the pipeline should:
+
+```text
+load the training and testing data
+verify the required columns
+build sequences within each voyage
+train the TCN model
+predict the next vessel point
+compare the prediction to the true next point
+calculate model error
+calculate dead reckoning error
+save all results to a new experiment folder
+```
+
+The sequence construction is important. The model uses a window of previous AIS points to predict the next point. No sequence should cross from one voyage into another voyage.
+
+The last row of each sequence is treated as the prediction anchor. The model predicts the next vessel state after that anchor point.
+
+---
+
+# How To Find the Results
+
+After the run finishes, go to the `experiments/` folder.
+
+A new folder should have been created for the run.
+
+Example:
+
+```text
+experiments/20260429_153000_seq16_kernel5/
+```
+
+Inside that folder, check the following files.
+
+---
+
+## `metrics_summary.json`
+
+This file gives the main performance results.
+
+Look for metrics such as:
+
+```text
+TCN RMSE
+TCN MAE
+TCN median error
+TCN 95th percentile error
+dead reckoning RMSE
+dead reckoning MAE
+dead reckoning median error
+dead reckoning 95th percentile error
+```
+
+These metrics show how well the TCN performed compared to the dead reckoning baseline.
+
+Lower error is better.
+
+---
+
+## `predictions.csv`
+
+This file contains row-level prediction results.
+
+Use this file to inspect individual predictions.
+
+Important columns may include:
+
+```text
+MMSI
+voyage_id
+row_id
+true_lat
+true_lon
+pred_lat
+pred_lon
+dr_pred_lat
+dr_pred_lon
+tcn_error_yds
+dr_error_yds
+```
+
+This file is useful for making maps, checking bad predictions, and comparing the TCN against dead reckoning.
+
+---
+
+## `train_loss_history.csv`
+
+This file shows how the model trained over time.
+
+Use this file to check whether the model was improving.
+
+If the loss decreases and then levels out, that usually means training behaved normally.
+
+If the loss does not decrease, the model may not be learning.
+
+If the loss becomes unstable or increases sharply, the learning rate may be too high or there may be a data issue.
+
+---
+
+## `config.json`
+
+This file records the exact settings used for the experiment.
+
+This matters because two experiments are only comparable if the settings are known.
+
+Before comparing results, check the config file and confirm:
+
+```text
+same train/test data
+same sequence construction logic
+same target variables
+same error units
+same evaluation method
+```
+
+---
+
+# Running a Single Test
+
+To run one simple test:
+
+1. Open:
+
+```text
+src/experiment_runner.py
+```
+
+2. Set each hyperparameter list to one value.
+
+Example:
+
+```python
+seq_lens = [16]
+batch_sizes = [256]
+learning_rates = [1e-4]
+dropouts = [0.3]
+kernel_sizes = [5]
+channel_options = [[64, 128, 256]]
+dilation_options = [[1, 2, 4, 8]]
+```
+
+3. Save the file.
+
+4. Run:
+
+```bash
+python3 -m src.experiment_runner
+```
+
+5. Open the newest folder inside:
+
+```text
+experiments/
+```
+
+6. Review:
+
+```text
+metrics_summary.json
+predictions.csv
+train_loss_history.csv
+config.json
+```
+
+---
+
+# Running Multiple Experiments
+
+To run a sweep, add multiple values to the hyperparameter lists in `experiment_runner.py`.
+
+Example:
+
+```python
+seq_lens = [16, 20, 24]
+batch_sizes = [128, 256]
+learning_rates = [1e-4, 3e-4]
+dropouts = [0.2, 0.3]
+kernel_sizes = [3, 5]
+channel_options = [[64, 128, 256]]
+dilation_options = [[1, 2, 4, 8]]
+```
+
+The experiment runner will run every combination of these settings.
+
+Be careful: the number of experiments grows quickly.
+
+For example:
+
+```text
+3 sequence lengths
+× 2 batch sizes
+× 2 learning rates
+× 2 dropout values
+× 2 kernel sizes
+= 48 experiments
+```
+
+Large sweeps can take a long time and use a lot of storage.
+
+---
+
+# Recommended First Test
+
+For a basic test run, use a single configuration first:
+
+```python
+seq_lens = [16]
+batch_sizes = [256]
+learning_rates = [1e-4]
+dropouts = [0.3]
+kernel_sizes = [5]
+channel_options = [[64, 128, 256]]
+dilation_options = [[1, 2, 4, 8]]
+```
+
+Then run:
+
+```bash
+python3 -m src.experiment_runner
+```
+
+Do not start with a full sweep until the single test works correctly.
+
+---
+
+# Common Issues
+
+## Import Error
+
+If you see an import error such as:
+
+```text
+ModuleNotFoundError
+```
+
+make sure you are running the command from the main project folder:
+
+```bash
+python3 -m src.experiment_runner
+```
+
+Do not run the command from inside the `src/` folder.
+
+---
+
+## Missing Data File
+
+If the code says a CSV file cannot be found, check that the required files are inside:
+
+```text
+data/raw/
+```
+
+Also check that the file names in the code match the actual file names.
+
+---
+
+## GPU Not Detected
+
+Check GPU availability with:
+
+```bash
+python3 -c "import torch; print(torch.cuda.is_available())"
+```
+
+If this returns `False`, the model may still run on CPU, but training will be slower.
+
+---
+
+## Results Folder Not Created
+
+If no new folder appears in `experiments/`, check the terminal output for an error message.
+
+Common causes include:
+
+```text
+missing input CSV
+incorrect column names
+failed import
+invalid hyperparameter setting
+CUDA/PyTorch issue
+```
+
+---
+
+# Summary Workflow
+
+The basic workflow is:
+
+```text
+1. Put train/test CSV files in data/raw/
+2. Edit experiment settings in src/experiment_runner.py
+3. Run python3 -m src.experiment_runner
+4. Open the newest folder in experiments/
+5. Review metrics_summary.json
+6. Review predictions.csv
+7. Compare TCN error against dead reckoning error
+```
+
+The most important files for understanding a completed run are:
+
+```text
+config.json
+metrics_summary.json
+predictions.csv
+train_loss_history.csv
+```
+
+The most important command is:
+
+```bash
+python3 -m src.experiment_runner
+```
